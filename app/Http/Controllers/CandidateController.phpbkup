@@ -1,0 +1,424 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Candidate;
+use App\Models\Opening;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Http;
+use SharpAPI\ResumeParser\ResumeParserService;
+use Log;
+
+class CandidateController extends Controller
+{
+    public function index(Request $request)
+    {
+        $query = Candidate::query();
+
+        if ($request->has('status') && $request->status != '') {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->has('opening_id') && $request->opening_id != '') {
+            $query->where('opening_id', $request->opening_id);
+        }
+
+        $candidates = $query->with('opening')->latest()->paginate(10);
+        $openings = Opening::all();
+
+        return view('candidates.index', compact('candidates', 'openings'));
+    }
+
+    public function create()
+    {
+        $openings = Opening::all();
+        // --- MODIFICATION ---
+        // Get the parsed data from the session, if it exists
+        // If not, use an empty object.
+        $candidate = (object) session('parsedData', []);
+        return view('candidates.create', compact('openings','candidate'));
+    }
+
+    public function store(Request $request)
+    {
+        $request->validate([
+            'first_name' => 'required',
+            'email' => 'required|email|unique:candidates,email',
+            'resume' => 'nullable|mimes:pdf,doc,docx|max:2048',
+        ]);
+
+        $data = $request->all();
+
+        // --- MODIFICATION ---
+        if ($request->hasFile('resume')) {
+            // Handle manual upload on the form
+            $data['resume_path'] = $request->file('resume')->store('resumes', 'public');
+        } elseif ($request->filled('resume_path')) {
+            // Keep the path that was set by the parser
+            $data['resume_path'] = $request->resume_path;
+        }
+        // --- END MODIFICATION ---
+
+        if ($request->hasFile('resume')) {
+            $data['resume_path'] = $request->file('resume')->store('resumes', 'public');
+        }
+
+        Candidate::create($data);
+
+        return redirect()->route('candidates.index')->with('success', 'Candidate added successfully.');
+    }
+
+    public function edit(Candidate $candidate)
+    {
+        $openings = Opening::all();
+        return view('candidates.edit', compact('candidate', 'openings'));
+    }
+
+    public function update(Request $request, Candidate $candidate)
+    {
+        $request->validate([
+            'first_name' => 'required',
+            'email' => 'required|email|unique:candidates,email,' . $candidate->id,
+        ]);
+
+        $data = $request->all();
+
+        if ($request->hasFile('resume')) {
+            if ($candidate->resume_path) {
+                Storage::disk('public')->delete($candidate->resume_path);
+            }
+            $data['resume_path'] = $request->file('resume')->store('resumes', 'public');
+        }
+
+        $candidate->update($data);
+
+        return redirect()->route('candidates.index')->with('success', 'Candidate updated successfully.');
+    }
+
+    public function destroy(Candidate $candidate)
+    {
+        if ($candidate->resume_path) {
+            Storage::disk('public')->delete($candidate->resume_path);
+        }
+        $candidate->delete();
+
+        return redirect()->route('candidates.index')->with('success', 'Candidate deleted.');
+    }
+
+
+    // custom method to fetch candidates from external API
+
+    /**
+     * NEW METHOD: Handle Resume Parsing
+     */
+    public function parseResumeold(Request $request)
+    {
+        $request->validate([
+            'resume' => 'required|mimes:pdf|max:2048',
+        ]);
+
+        // 1. Store the resume in your Laravel app first
+        $path = $request->file('resume')->store('resumes', 'public');
+        $fullFilePath = storage_path('app/public/' . $path);
+
+        try {
+            // 2. Send the file to your LOCAL open-resume server
+            // The API endpoint is /api/parse-resume as per the open-resume README.md
+            $response = Http::attach(
+                'file', file_get_contents($fullFilePath), $request->file('resume')->getClientOriginalName()
+            )->post('http://localhost:3000/api/parse-resume');
+
+            if ($response->failed()) {
+                throw new \Exception('Local parser service failed: ' . $response->body());
+            }
+
+            $data = $response->json();
+            
+            // 3. Map the JSON data to your form fields
+            // This mapping is based on the open-resume parser structure
+            $parsedData = [
+                'first_name' => $data['profile']['firstName'] ?? '',
+                'last_name' => $data['profile']['lastName'] ?? '',
+                'email' => $data['profile']['email'] ?? '',
+                'phone' => $data['profile']['phone'] ?? '',
+                'skills' => implode(', ', array_map(fn($skill) => $skill['skill'], $data['skills'] ?? [])),
+                'status' => 'New',
+                'resume_path' => $path, // Pass the path of the file we already saved
+            ];
+
+            // 4. Redirect to the create form with the data pre-filled
+            return redirect()->route('candidates.create')
+                             ->with('parsedData', $parsedData);
+
+        } catch (\Exception $e) {
+            // If API fails, delete the stored file and show an error
+            Storage::disk('public')->delete($path);
+            return redirect()->route('candidates.index')
+                             ->with('parse_error', 'Could not parse resume: ' . $e->getMessage());
+        }
+    }
+
+    public function parseResumeold2(Request $request)
+    {
+        \Log::info('Starting resume parsing process');
+        
+        $request->validate([
+            'resume_file' => 'required|mimes:pdf,doc,docx|max:2048'
+        ]);
+        \Log::info('File validation passed');
+
+        $filePath = $request->file('resume_file')->getRealPath();
+        $originalName = $request->file('resume_file')->getClientOriginalName();
+        $resumePath = $request->file('resume_file')->store('resumes', 'public');
+        \Log::info('File stored successfully', ['path' => $resumePath, 'originalName' => $originalName]);
+
+        $parsedData = [];
+        
+        try {
+            \Log::info('Initializing parser service');
+            $parserService = new ResumeParserService(config('sharpapi.api_key'));
+
+            \Log::info('Sending file for parsing');
+            $statusUrl = $parserService->parseResume($filePath, 'English', $originalName);
+            \Log::info('Received status URL', ['url' => $statusUrl]);
+
+            \Log::info('Fetching parse results');
+            $resultJob = $parserService->fetchResults($statusUrl);
+            $parsedJson = $resultJob->getResultJson();
+            \Log::info('Received parsed data', ['data' => $parsedJson]);
+
+            \Log::info('Mapping parsed data to fields');
+            $parsedData['first_name'] = $parsedJson['data']['name']['first_name'] ?? '';
+            $parsedData['last_name'] = $parsedJson['data']['name']['last_name'] ?? '';
+            $parsedData['email'] = $parsedJson['data']['contact']['email'][0] ?? '';
+            $parsedData['phone'] = $parsedJson['data']['contact']['phone'][0] ?? '';
+            $parsedData['skills'] = implode(', ', $parsedJson['data']['skills'] ?? []);
+            $parsedData['resume_path'] = $resumePath;
+            \Log::info('Data mapping complete', ['mappedData' => $parsedData]);
+
+            \Log::info('Redirecting to create form with parsed data');
+            return redirect()->route('candidates.create')
+                             ->with('parsedData', $parsedData)
+                             ->with('success', 'Resume parsed! Please review and save.');
+
+        } catch (\Exception $e) {
+            \Log::error('Resume parsing failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return redirect()->route('candidates.index')
+                             ->with('error', 'Could not parse resume: ' . $e->getMessage());
+        }
+    }
+
+    public function parseResumeold3(Request $request)
+    {
+        \Log::info('Starting resume parsing process');
+        
+        // **CRITICAL FIX**: Changed 'resume_file' to 'resume' to match the form
+        // $request->validate([
+        //     'resume' => 'required|mimes:pdf,doc,docx|max:2048'
+        // ]);
+        \Log::info('File validation passed');
+
+        $file = $request->file('resume_file');
+        $filePath = $file->getRealPath();
+        $originalName = $file->getClientOriginalName();
+        $resumePath = $file->store('resumes', 'public');
+        \Log::info('File stored successfully', ['path' => $resumePath, 'originalName' => $originalName]);
+
+        $parsedData = [];
+        
+        try {
+            \Log::info('Initializing parser service');
+            $api_key = env('SHARP_API_KEY');
+            $parserService = new ResumeParserService($api_key);
+
+            \Log::info('Sending file for parsing');
+            $statusUrl = $parserService->parseResume($filePath, 'English', $originalName);
+            \Log::info('Received status URL', ['url' => $statusUrl]);
+
+            \Log::info('Fetching parse results');
+            $resultJob = $parserService->fetchResults($statusUrl);
+            $parsedJson = $resultJob->getResultJson();
+            \Log::info('Received parsed data'); // Removed sensitive data from log
+
+            \Log::info('Mapping parsed data to fields');
+            // This mapping is an example, you MUST adjust it to SharpAPI's JSON structure
+            $parsedData['first_name'] = $parsedJson['data']['name']['first_name'] ?? '';
+            $parsedData['last_name'] = $parsedJson['data']['name']['last_name'] ?? '';
+            $parsedData['email'] = $parsedJson['data']['contact']['email'][0] ?? '';
+            $parsedData['phone'] = $parsedJson['data']['contact']['phone'][0] ?? '';
+            $parsedData['skills'] = implode(', ', $parsedJson['data']['skills'] ?? []);
+            $parsedData['resume_path'] = $resumePath;
+            $parsedData['status'] = 'New';
+            \Log::info('Data mapping complete');
+
+            \Log::info('Redirecting to create form with parsed data');
+            return redirect()->route('candidates.create')
+                             ->with('parsedData', $parsedData)
+                             ->with('success', 'Resume parsed! Please review and save.');
+
+        } catch (\Exception $e) {
+            \Log::error('Resume parsing failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            // If API fails, delete the stored file and show an error
+            Storage::disk('public')->delete($resumePath);
+            
+            return redirect()->route('candidates.index')
+                             ->with('parse_error', 'Could not parse resume: ' . $e->getMessage());
+        }
+    }
+
+
+    /**
+     * This is the CORRECT method for the SharpAPI service,
+     * now with manual polling to prevent errors.
+     */
+    public function parseResume(Request $request)
+    {
+        \Log::info('Starting resume parsing process');
+        
+        $request->validate([
+            'resume_file' => 'required|mimes:pdf,doc,docx|max:2048'
+        ]);
+        \Log::info('File validation passed');
+
+        $file = $request->file('resume_file');
+        $filePath = $file->getRealPath();
+        $originalName = $file->getClientOriginalName();
+
+
+        // --- THIS IS THE FIX ---
+        // 1. Save the file to its permanent path first.
+        $resumePath = $file->store('resumes', 'public');
+        // 2. Get the full, absolute path to that saved file.
+        $fullPath = storage_path('app/public/' . $resumePath);
+        // --- END OF FIX ---
+
+
+        // $resumePath = $file->store('resumes', 'public');
+        \Log::info('File stored successfully', ['path' => $fullPath]);
+
+        $parsedData = [];
+        
+        // try {
+            $apiKey = "5r1QHWTeWdLCSIED8FJClWxaM0Rf1a4B1zFmjcQi";
+            if (empty($apiKey)) {
+                throw new \Exception('SharpAPI key is not set in .env or config/sharpapi.php');
+            }
+            
+            \Log::info('Initializing parser service');
+            $parserService = new ResumeParserService($apiKey);
+
+            \Log::info('Sending file for parsing');
+            $statusUrl = $parserService->parseResume($fullPath, 'English', $originalName);
+            \Log::info('Received status URL', ['url' => $statusUrl]);
+
+            \Log::info('Starting to poll for results...');
+            
+            $jobStatus = '';
+            $parsedJson = null;
+            $startTime = time();
+
+            // Poll for up to 60 seconds
+            while (time() - $startTime < 60) {
+                            \Log::info('inside while loop to poll status');
+
+                // We use Laravel's general HTTP client to check the status,
+                // bypassing the package's faulty fetchResults method.
+                // $statusResponse = Http::withHeaders(['X-API-KEY' => $apiKey])
+                //                     ->get($statusUrl);
+
+
+
+                $statusResponse = Http::withHeaders([
+                    'Authorization' => 'Bearer ' . $apiKey,
+                    'Accept' => 'application/json',
+                ])
+                ->withoutVerifying() // <-- THIS IS THE FIX
+                ->get($statusUrl);
+
+                                                                \Log::info('after status response');
+
+                if ($statusResponse->failed()) {
+                    throw new \Exception('Failed to poll status URL');
+                }
+
+                $statusData = $statusResponse->json();
+                $jobStatus = $statusData['status'] ?? 'failed';
+
+                if ($jobStatus === 'completed') {
+                    \Log::info('Job completed, results received.');
+                    // The results are in the 'result' key of the *status response*
+                    $parsedJson = $statusData['result']; 
+                    break; // Exit the loop
+                }
+
+                if ($jobStatus === 'failed') {
+                    throw new \Exception('API job failed: ' . ($statusData['error'] ?? 'Unknown error'));
+                }
+
+                // If still 'processing', wait 3 seconds and try again
+                \Log::info('Job is still processing, waiting 3 seconds...');
+                sleep(3);
+            }
+
+            if ($jobStatus !== 'completed' || is_null($parsedJson)) {
+                throw new \Exception('Job timed out after 60 seconds.');
+            }
+
+            \Log::info('Received parsed data'); 
+
+            \Log::info('Mapping parsed data to fields');
+          // --- THIS IS THE FIX ---
+            // Map the *correct* JSON keys from your dashboard log.
+            Log::info('Mapping parsed data to fields');
+            
+            // Split the full name into first and last
+            $nameParts = explode(' ', $parsedJson['candidate_name'] ?? '', 2);
+
+            $parsedData['first_name'] = $nameParts[0] ?? '';
+            $parsedData['last_name'] = $nameParts[1] ?? '';
+            $parsedData['email'] = $parsedJson['candidate_email'] ?? '';
+            $parsedData['phone'] = $parsedJson['candidate_phone'] ?? '';
+            
+            // The JSON you sent doesn't have a simple skills list.
+            // We will leave this blank for now.
+            $parsedData['skills'] = ''; 
+            
+            $parsedData['resume_path'] = $resumePath;
+            $parsedData['status'] = 'New';
+            \Log::info('Data mapping complete', ['mappedData' => $parsedData]);
+            // --- END OF FIX ---
+
+            \Log::info('Redirecting to create form with parsed data');
+            return redirect()->route('candidates.create')
+                             ->with('parsedData', $parsedData)
+                             ->with('success', 'Resume parsed! Please review and save.');
+
+        // } catch (\Exception $e) {
+        //     \Log::error('Resume parsing failed', [
+        //         'error' => $e->getMessage(),
+        //         'trace' => $e->getTraceAsString()
+        //     ]);
+            
+        //     // If API fails, delete the stored file and show an error
+        //     Storage::disk('public')->delete($resumePath);
+            
+        //     return redirect()->route('candidates.index')
+        //                      ->with('parse_error', 'Could not parse resume: ' . $e->getMessage());
+        // }
+    }
+
+    public function show(Candidate $candidate)
+    {
+        // Redirect to the edit page, since we don't have a separate "show" view
+        return redirect()->route('candidates.edit', $candidate);
+    }
+}
