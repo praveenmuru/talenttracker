@@ -17,6 +17,8 @@
 
 <hr/>
     <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h1 class="text-2xl font-bold mb-4">Welcome, {{ Auth::user()->name }} 👋</h1>
+
         <h2 class="fw-bold text-dark">Candidates</h2>
         <a href="{{ route('candidates.create') }}" class="btn text-white rounded-0 px-4 bg-primary" >+ Add Candidate</a>
     </div>

@@ -22,7 +22,7 @@ class LoginController extends Controller
 
         if (Auth::attempt($credentials)) {
             $request->session()->regenerate();
-            return redirect()->route('dashboard')->with('success', 'Welcome back!');
+            return redirect()->route('candidates.index')->with('success', 'Welcome back!');
         }
 
         return back()->withErrors([
