@@ -7,9 +7,9 @@
     @vite('resources/css/app.css')
     <style>
         .button-cq {
- background-color: #fb9f00ff; /* Darker blue on hover */        }
+ background-color: #1671f9ff; /* Darker blue on hover */        }
         .button-cq {
-            background-color: #f69f08ff; /* Darker blue on hover */
+            background-color: #1671f9ff; /* Darker blue on hover */
         }
     </style>
 </head>

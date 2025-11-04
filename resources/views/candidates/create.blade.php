@@ -7,7 +7,6 @@
         <div class="card-header text-white rounded-0 bg-primary" >
             <h4 class="mb-0">Add Candidate</h4>
         </div>
-
         <div class="card-body bg-white">
             <form method="POST" action="{{ route('candidates.store') }}" enctype="multipart/form-data">
             @csrf
