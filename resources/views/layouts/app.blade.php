@@ -59,7 +59,7 @@
         display: block;
     }
 
-    .form-control, select, textarea, input {
+    .form-control {
         width: 100%;
         border-radius: 0;
         border: 1px solid var(--input-border);
@@ -171,11 +171,14 @@
     .bg-primary{
         background-color: var(--primary-color);
     }
-.header-style{
-background-color: var(--primary-color); 
-color: #fff;
- box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
+    .navbar-nav {
+        padding:20px 10px;
+    }
+    .header-style{
+        background-color: var(--primary-color); 
+        color: #fff;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
     @media (max-width: 768px) {
         .container {
             padding: 1rem;
@@ -194,7 +197,7 @@ color: #fff;
                     ATS Dashboard
                 </a>
 
-                <nav class="hidden md:flex space-x-4">
+                <nav class="hidden md:flex space-x-4 navbar-nav">
                     <a href="/openings" class="px-3 py-2 rounded text-white hover:bg-[#ea580c] transition-colors duration-200">Openings</a>
                     <a href="/candidates" class="px-3 py-2 rounded text-white hover:bg-[#ea580c] transition-colors duration-200">Candidates</a>
                     <a href="#" class="px-3 py-2 rounded text-white hover:bg-[#ea580c] transition-colors duration-200">Interviews</a>
@@ -220,7 +223,7 @@ color: #fff;
     </div>
 
     <!-- Mobile Menu -->
-    <div class="md:hidden bg-[#f97316] border-t border-[#ea580c]">
+    <div class="md:hidden bg-[#f97316] border-t border-[#ea580c] navbar-nav">
         <div class="px-4 pt-2 pb-4 space-y-1">
             <a href="/openings" class="block px-3 py-2 rounded text-white hover:bg-[#ea580c] transition-colors duration-200">Openings</a>
             <a href="/candidates" class="block px-3 py-2 rounded text-white hover:bg-[#ea580c] transition-colors duration-200">Candidates</a>

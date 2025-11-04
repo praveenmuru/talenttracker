@@ -3,25 +3,23 @@
 @section('content')
 
 <div class="container-fluid px-5 py-4 bg-light">
- <h3 class="fw-bold text-dark">Or, Add Candidate by Resume</h3>
-<form action="{{ route('candidates.parse') }}" method="POST" enctype="multipart/form-data" class="row g-2 mb-4">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+                    <!-- <h1 class="text-2xl font-bold mb-4">Welcome, {{ Auth::user()->name }} </h1> -->
+        <a href="{{ route('candidates.create') }}" class="btn text-white rounded-0 px-4 bg-primary" >+ Add Candidate</a>
+    </div>
+
+    or 
+
+    <form action="{{ route('candidates.parse') }}" method="POST" enctype="multipart/form-data" class="row g-2 mb-4">
     @csrf
     <div class="col-md-4">
-        <label for="resume_file" class="form-label">Upload Resume (PDF, DOCX)</label>
         <input type="file" name="resume_file" class="form-control" required>
     </div>
     <div class="col-md-2" style="margin-top: 2.2rem;">
         <button type="submit" class="btn text-white bg-primary w-100">Parse & Add</button>
     </div>
 </form>
-
-<hr/>
-    <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h1 class="text-2xl font-bold mb-4">Welcome, {{ Auth::user()->name }} 👋</h1>
-
-        <h2 class="fw-bold text-dark">Candidates</h2>
-        <a href="{{ route('candidates.create') }}" class="btn text-white rounded-0 px-4 bg-primary" >+ Add Candidate</a>
-    </div>
 
     <form method="GET" class="row g-2 mb-3">
         <div class="col-md-3">
