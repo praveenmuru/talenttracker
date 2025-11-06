@@ -39,12 +39,24 @@ class CandidateController extends Controller
         return view('candidates.index', compact('candidates', 'openings'));
     }
 
-    public function create()
+public function create()
     {
-        $openings = Opening::all();
-        // Get the parsed data from the session, if it exists
-        $candidate = (object) session('parsedData', []);
-        return view('candidates.create', compact('openings', 'candidate'));
+        // 1. Create a new, empty Candidate model
+        $candidate = new \App\Models\Candidate();
+        
+        // 2. Check for parsed data from the session and fill the model
+        if (session('parsedData')) {
+            $candidate->fill(session('parsedData'));
+        } else {
+            // 3. Set defaults for a blank form
+            $candidate->status = 'New';
+        }
+
+        // 4. Get openings
+        $openings = \App\Models\Opening::all();
+        
+        // 5. Pass the (now populated) $candidate model to the view
+        return view('candidates.create', compact('candidate', 'openings'));
     }
 
     public function store(Request $request)
@@ -131,7 +143,11 @@ class CandidateController extends Controller
 
     protected function initializeParser()
     {
-        $apiKey = "5r1QHWTeWdLCSIED8FJClWxaM0Rf1a4B1zFmjcQi"; // Move to .env
+        $apiKey = "5r1QHWTeWdLCSIED8FJClWxaM0Rf1a4B1zFmjcQi";
+        // $apiKey = env('SHARP_API_KEY');
+
+            Log::info('sharp api key', ['api key' => $apiKey]);
+            // exit;
         if (empty($apiKey)) {
             throw new \Exception('SHARP_API_KEY is not set');
         }
@@ -140,32 +156,43 @@ class CandidateController extends Controller
 
     protected function pollForResults($statusUrl, $apiKey)
     {
+
+        print("in poll rsult exit");
+        
         $startTime = time();
         while (time() - $startTime < 60) {
             $statusResponse = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $apiKey,
                 'Accept' => 'application/json',
-            ])->withoutVerifying()->get($statusUrl);
+            ])->timeout(10)->withoutVerifying()->get($statusUrl);
 
             if ($statusResponse->failed()) {
-                throw new \Exception('Failed to poll status URL: ' . $statusResponse->status());
+                print("in failed exit");
+                // exit;
+                // throw new \Exception('Failed to poll status URL: ' . $statusResponse->status());
             }
 
             $statusData = $statusResponse->json();
             $jobStatus = $statusData['data']['attributes']['status'] ?? 'failed';
 
             if ($jobStatus === 'success') {
+                print("in success exit");
+                // exit;
+                // var_dump($statusData);
+                // exit;
                 return $statusData['data']['attributes']['result'];
             }
 
             if ($jobStatus === 'failed') {
+                print("in failed2 exit");
+                // exit;
                 $apiError = $statusData['data']['attributes']['error'] ?? 'Unknown error';
                 throw new \Exception('API job failed: ' . $apiError);
             }
 
             sleep(3);
         }
-        throw new \Exception('Job timed out after 60 seconds.');
+        throw new \Exception('Job timed out after 115 seconds.');
     }
 
     protected function mapResumeData($resumeData, $resumePath)
@@ -196,6 +223,8 @@ class CandidateController extends Controller
     {
         Log::info('Starting resume parsing process');
         
+        set_time_limit(12000); // <-- ADD THIS LINE
+
         try {
             $fileInfo = $this->validateAndStoreFile($request);
             Log::info('File stored successfully', ['path' => $fileInfo['fullPath']]);
@@ -212,17 +241,19 @@ class CandidateController extends Controller
 
             $parsedJson = $this->pollForResults($statusUrl, "5r1QHWTeWdLCSIED8FJClWxaM0Rf1a4B1zFmjcQi");
             
-            if (!isset($parsedJson['data']) || !is_string($parsedJson['data'])) {
-                throw new \Exception('Unexpected JSON format from API');
-            }
+            // if (!isset($parsedJson['data']) || !is_string($parsedJson['data'])) {
+            //     throw new \Exception('Unexpected JSON format from API');
+            // }
 
-            $resumeData = json_decode($parsedJson['data'], true);
+            $resumeData = json_decode($parsedJson, true);
             if (is_null($resumeData)) {
                 throw new \Exception('Failed to decode the inner JSON data string.');
             }
 
             $parsedData = $this->mapResumeData($resumeData, $fileInfo['path']);
             Log::info('Data mapping complete', ['mappedData' => $parsedData]);
+
+
 
             return redirect()->route('candidates.create')
                            ->with('parsedData', $parsedData)
