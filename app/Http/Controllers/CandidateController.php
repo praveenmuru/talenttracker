@@ -29,8 +29,8 @@ class CandidateController extends Controller
             $query->where('status', $request->status);
         }
 
-        if ($request->has('opening_id') && $request->opening_id != '') {
-            $query->where('opening_id', $request->opening_id);
+        if ($request->has('job_id') && $request->job_id != '') {
+            $query->where('job_id', $request->job_id);
         }
 
         $candidates = $query->with('opening')->latest()->paginate(10);
@@ -221,57 +221,62 @@ public function create()
 
     public function parseResume(Request $request)
     {
-        Log::info('Starting resume parsing process');
+        $request->validate([
+            'resume_file' => 'required|file|mimes:pdf,docx', // This is the file from your HTML form
+        ]);
+
+        $file = $request->file('resume_file');
+
+        // --- Handle DOCX to PDF Conversion First ---
+        // (Add your LibreOffice or DomPDF conversion logic here)
+        // For this example, we'll assume it's already a PDF or converted.
+        // $pdfPath = 'path/to/your/converted.pdf';
         
-        set_time_limit(12000); // <-- ADD THIS LINE
+        // We'll use the original file path for this example
+        $filePath = $file->path();
+        $fileName = $file->getClientOriginalName();
 
+
+        // --- Send to Open Resume API ---
         try {
-            $fileInfo = $this->validateAndStoreFile($request);
-            Log::info('File stored successfully', ['path' => $fileInfo['fullPath']]);
+            $response = Http::timeout(60) // Increase timeout for parsing
+                ->attach(
+                    'resume', // This is the required API field name
+                    file_get_contents($filePath),
+                    $fileName
+                )
+                ->post('http://localhost:3000/api/parse');
 
-            $parserService = $this->initializeParser();
-            Log::info('Parser service initialized');
+            // --- Handle the Response ---
+            if ($response->successful()) {
+                // Success! $parsedData is an array.
+                $parsedData = $response->json();
 
-            $statusUrl = $parserService->parseResume(
-                $fileInfo['fullPath'], 
-                'English', 
-                $fileInfo['originalName']
-            );
-            Log::info('Received status URL', ['url' => $statusUrl]);
+                // Log the successful result to see the structure
+                Log::info('Resume parsed successfully: ', $parsedData);
 
-            $parsedJson = $this->pollForResults($statusUrl, "5r1QHWTeWdLCSIED8FJClWxaM0Rf1a4B1zFmjcQi");
-            
-            // if (!isset($parsedJson['data']) || !is_string($parsedJson['data'])) {
-            //     throw new \Exception('Unexpected JSON format from API');
-            // }
+                // Now you can use the data:
+                // $name = $parsedData['name'];
+                // $email = $parsedData['email'];
+                // $skills = $parsedData['skills']; // This will be an array
 
-            $resumeData = json_decode($parsedJson, true);
-            if (is_null($resumeData)) {
-                throw new \Exception('Failed to decode the inner JSON data string.');
+                return back()->with('success', 'Resume parsed!')
+                             ->with('data', $parsedData);
+
+            } else {
+                // The API returned an error (e.g., 400, 500)
+                Log::error('Open Resume API Error: ' . $response->body());
+                return back()->with('error', 'The parser service failed.');
             }
-
-            $parsedData = $this->mapResumeData($resumeData, $fileInfo['path']);
-            Log::info('Data mapping complete', ['mappedData' => $parsedData]);
-
-
-
-            return redirect()->route('candidates.create')
-                           ->with('parsedData', $parsedData)
-                           ->with('success', 'Resume parsed! Please review and save.');
 
         } catch (\Exception $e) {
-            Log::error('Resume parsing failed', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            
-            if (isset($fileInfo['path'])) {
-                Storage::disk('public')->delete($fileInfo['path']);
-            }
-            
-            return redirect()->route('candidates.index')
-                           ->with('parse_error', 'Could not parse resume: ' . $e->getMessage());
+            // The request itself failed (e.g., connection refused)
+            // This is the most common error.
+            Log::error('Could not connect to Open Resume API: ' . $e->getMessage());
+            return back()->with('error', 'Could not connect to parser. Is the Docker container running?');
         }
-    }
 
+
+
+    }
 }

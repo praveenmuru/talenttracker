@@ -10,15 +10,15 @@
     <style>
     /* === Theme Variables === */
     :root {
-        --primary-color: #1671f9ff;
-        --primary-hover: #0c47eaff;
+        --primary-color: #575a5fff;
+        --primary-hover: #5e6371ff;
         --light-bg: #fff7ed;
         --body-bg: #fdfdfd;
         --text-dark: #333;
         --border-color: #ddd;
         --input-border: #ccc;
-        --warning-color: #1671f9ff;
-        --danger-color: #0c47eaff;
+        --warning-color: #5f6368ff;
+        --danger-color: #6f737dff;
         --white: #ffffff;
     }
 

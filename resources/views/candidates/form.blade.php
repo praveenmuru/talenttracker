@@ -34,11 +34,11 @@
                         </div>
 
                         <div class="mb-3">
-                            <label for="opening_id" class="form-label">Opening</label>
+                            <label for="job_id" class="form-label">Opening</label>
                             <select name="job_id" id="job_id" class="form-select border border-dark p-2">
                                 <option value="">Select Opening</option>
                                 @foreach($openings as $opening)
-                                    <option value="{{ $opening->id }}" {{ old('opening_id', $candidate->job_id) == $opening->id ? 'selected' : '' }}>
+                                    <option value="{{ $opening->id }}" {{ old('job_id', $candidate->job_id) == $opening->id ? 'selected' : '' }}>
                                         {{ $opening->title }}
                                     </option>
                                 @endforeach

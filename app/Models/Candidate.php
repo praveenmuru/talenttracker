@@ -11,7 +11,7 @@ class Candidate extends Model
 
     protected $fillable = [
         'first_name', 'last_name', 'email', 'phone', 'experience',
-        'skills', 'resume_path', 'status', 'opening_id', 'notes', 'created_by'
+        'skills', 'resume_path', 'status', 'job_id', 'notes', 'created_by'
     ];
 
     public function opening()

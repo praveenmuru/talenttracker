@@ -27,10 +27,10 @@
     </div>
     <form method="GET" class="row g-2 mb-3">
         <div class="col-md-3">
-            <select name="opening_id" class="form-select rounded-0 border-dark">
+            <select name="job_id" class="form-select rounded-0 border-dark">
                 <option value="">All Openings</option>
                 @foreach($openings as $opening)
-                    <option value="{{ $opening->id }}" {{ request('opening_id')==$opening->id?'selected':'' }}>{{ $opening->title }}</option>
+                    <option value="{{ $opening->id }}" {{ request('job_id')==$opening->id?'selected':'' }}>{{ $opening->title }}</option>
                 @endforeach
             </select>
         </div>
